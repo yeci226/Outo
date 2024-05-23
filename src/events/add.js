@@ -77,14 +77,16 @@ client.on("interactionCreate", async interaction => {
 			ephemeral: true
 		});
 
-	let guilddb = (await db.get(`${interaction.guild.id}.replies`)) || [];
 	const entry = { trigger, replies, type, mode };
+	let guilddb = (await db.get(`${interaction.guild.id}.replies`)) || [];
 	const index = guilddb.findIndex(e => e.trigger === trigger);
 
 	if (index !== -1) guilddb[index] = entry;
 	else guilddb.push(entry);
 
-	await db.set(`${interaction.guild.id}.replies`, guilddb);
+	await db.set(`${interaction.guild.id}`, {
+		replies: guilddb
+	});
 
 	interaction.reply({
 		embeds: [
