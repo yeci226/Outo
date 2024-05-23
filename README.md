@@ -1,1 +1,1 @@
-Discord nhentai bot
+Discord auto reply bot
