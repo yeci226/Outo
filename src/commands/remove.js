@@ -47,7 +47,7 @@ export default {
 
 		if (index !== -1) {
 			guilddb.splice(index, 1);
-			await db.set(`${interaction.guild.id}`, guilddb);
+			await db.set(`${interaction.guild.id}`, { replies: guilddb });
 
 			return interaction.reply({
 				embeds: [

@@ -7,12 +7,9 @@ const db = new QuickDB();
 client.on("interactionCreate", async interaction => {
 	if (!interaction.isModalSubmit() || interaction.customId !== "add") return;
 
-	const trigger = interaction.fields
-		.getTextInputValue("add_trigger")
-		.replace(/\n/g, "");
+	const trigger = interaction.fields.getTextInputValue("add_trigger");
 	const replies = interaction.fields
 		.getTextInputValue("add_reply")
-		.replace(/\n/g, "")
 		.split("</>");
 	const type = interaction.fields.getTextInputValue("add_type");
 	const mode = interaction.fields.getTextInputValue("add_mode");
