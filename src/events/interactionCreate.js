@@ -24,14 +24,14 @@ client.on(Events.InteractionCreate, async interaction => {
 				.filter(trigger => trigger.includes(input))
 				.slice(0, 25);
 
-			filteredTriggers.forEach(trigger => {
+			filteredTriggers.map((trigger, index) => {
 				visibleOptions.push({
 					name: `${
 						trigger.length > 100
 							? trigger.slice(0, 100 - 3) + "..."
 							: trigger
 					}`,
-					value: trigger
+					value: index.toString()
 				});
 			});
 

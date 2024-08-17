@@ -78,7 +78,7 @@ function getListEmbed(interaction, guilddb, totalPages, currentPage) {
 
 		embed.addField(
 			`${trigger.length > 256 ? trigger.slice(0, 256 - 3) + "..." : trigger}`,
-			`${reply.length > 2020 ? reply.slice(0, 2020 - 3) + "..." : reply}\n\`${type}\`/\`${mode}\``,
+			`${reply.length > 1000 ? reply.slice(0, 1000 - 3) + "..." : reply}\n\`${type}\`/\`${mode}\``,
 			true
 		);
 	});

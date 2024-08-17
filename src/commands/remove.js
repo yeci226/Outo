@@ -42,11 +42,11 @@ export default {
 			});
 		}
 
-		const trigger = interaction.options.getString("vocabulary");
-		const index = guilddb.findIndex(e => e.trigger === trigger);
+		const triggerIndex = interaction.options.getString("vocabulary");
+		const trigger = guilddb[triggerIndex].trigger;
 
-		if (index !== -1) {
-			guilddb.splice(index, 1);
+		if (triggerIndex !== -1) {
+			guilddb.splice(triggerIndex, 1);
 			await db.set(`${interaction.guild.id}`, { replies: guilddb });
 
 			return interaction.reply({
