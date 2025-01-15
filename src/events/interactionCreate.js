@@ -1,132 +1,163 @@
 import { client } from "../index.js";
-import { ApplicationCommandOptionType } from "discord.js";
-import { Events, EmbedBuilder, WebhookClient, ChannelType } from "discord.js";
+import {
+	ApplicationCommandOptionType,
+	Events,
+	EmbedBuilder,
+	WebhookClient,
+	ChannelType
+} from "discord.js";
 import { Logger } from "../services/logger.js";
 
 const emoji = client.emoji;
 const db = client.db;
 const webhook = new WebhookClient({ url: process.env.CMDWEBHOOK });
 
+// Handle autocomplete interactions
+async function handleAutocomplete(interaction) {
+	if (interaction.options._hoistedOptions[0].name !== "vocabulary") return;
+
+	try {
+		const guildId = interaction.guild.id;
+		const guildData = await db.get(`${guildId}.replies`);
+
+		if (!guildData?.length) {
+			return await interaction.respond([]);
+		}
+
+		const input = (
+			interaction.options.getString("vocabulary") || ""
+		).toLowerCase();
+
+		const options = guildData
+			.map((item, index) => ({
+				trigger: item.trigger,
+				index
+			}))
+			.filter(item => item.trigger.toLowerCase().includes(input))
+			.slice(0, 25)
+			.map(item => ({
+				name:
+					item.trigger.length > 100
+						? `${item.trigger.slice(0, 97)}...`
+						: item.trigger,
+				value: item.index.toString()
+			}));
+
+		await interaction.respond(options);
+	} catch (error) {
+		console.error("Autocomplete error:", error);
+		await interaction.respond([]);
+	}
+}
+
+// Handle slash commands
+async function handleSlashCommand(interaction) {
+	const command = client.commands.slash.get(interaction.commandName);
+	if (!command) {
+		return interaction.followUp({
+			content: "An error has occurred",
+			ephemeral: true
+		});
+	}
+
+	const args = interaction.options.data.reduce((acc, option) => {
+		if (option.type === ApplicationCommandOptionType.Subcommand) {
+			if (option.name) acc.push(option.name);
+			option.options?.forEach(x => {
+				if (x.value) acc.push(x.value);
+			});
+		} else if (option.value) {
+			acc.push(option.value);
+		}
+		return acc;
+	}, []);
+
+	try {
+		await command.execute(client, interaction, args, db, emoji);
+		logCommandExecution(interaction, command);
+	} catch (error) {
+		console.error("Command execution error:", error);
+		new Logger("指令").error(`錯誤訊息：${error.message}`);
+
+		if (!interaction.replied && !interaction.deferred) {
+			await interaction.reply({
+				content: "哦喲，好像出了一點小問題，請重試",
+				ephemeral: true
+			});
+		}
+	}
+}
+
+// Log command execution
+function logCommandExecution(interaction, command) {
+	const executionTime = (
+		(Date.now() - interaction.createdTimestamp) /
+		1000
+	).toFixed(2);
+	const timeString = `花費 ${executionTime} 秒`;
+
+	new Logger("指令").command(
+		`${interaction.user.displayName}(${interaction.user.id}) 執行 ${command.data.name} - ${timeString}`
+	);
+
+	const embedFields = {
+		name: command.data.name,
+		value: [
+			interaction.options._subcommand
+				? `> ${interaction.options._subcommand}`
+				: "\u200b",
+			interaction.options._hoistedOptions.length > 0
+				? ` \`${interaction.options._hoistedOptions[0].value}\``
+				: "\u200b"
+		].join(""),
+		inline: true
+	};
+
+	webhook.send({
+		embeds: [
+			new EmbedBuilder()
+				.setColor(null)
+				.setFooter({ text: timeString })
+				.setTimestamp()
+				.setAuthor({
+					iconURL: interaction.user.displayAvatarURL({
+						size: 4096,
+						dynamic: true
+					}),
+					name: `${interaction.user.username} - ${interaction.user.id}`
+				})
+				.setThumbnail(
+					interaction.guild.iconURL({
+						size: 4096,
+						dynamic: true
+					})
+				)
+				.setDescription(
+					`\`\`\`${interaction.guild.name} - ${interaction.guild.id}\`\`\``
+				)
+				.addFields(embedFields)
+		]
+	});
+}
+
+// Main interaction handler
 client.on(Events.InteractionCreate, async interaction => {
-	if (interaction.channel.type == ChannelType.DM) return;
+	if (interaction.channel.type === ChannelType.DM) return;
 
-	if (interaction.isAutocomplete()) {
-		if (interaction.options._hoistedOptions[0].name === "vocabulary") {
-			const guilddb = await db.get(`${interaction.guild.id}.replies`);
-
-			if (!guilddb) return;
-			const visibleOptions = [];
-			const input =
-				interaction.options.getString("vocabulary", true) || "";
-
-			const triggers = guilddb.map(e => e.trigger);
-			const filteredTriggers = triggers
-				.filter(trigger => trigger.includes(input))
-				.slice(0, 25);
-
-			filteredTriggers.map((trigger, index) => {
-				visibleOptions.push({
-					name: `${
-						trigger.length > 100
-							? trigger.slice(0, 100 - 3) + "..."
-							: trigger
-					}`,
-					value: index.toString()
-				});
-			});
-
-			await interaction.respond(visibleOptions);
+	try {
+		if (interaction.isAutocomplete()) {
+			await handleAutocomplete(interaction);
+		} else if (interaction.isButton()) {
+			await interaction.deferUpdate().catch(() => {});
+		} else if (interaction.isCommand()) {
+			await handleSlashCommand(interaction);
+		} else if (interaction.isContextMenuCommand()) {
+			const command = client.commands.slash.get(interaction.commandName);
+			if (command) {
+				await command.execute(client, interaction);
+			}
 		}
-	}
-
-	if (interaction.isButton()) {
-		await interaction.deferUpdate().catch(() => {});
-	}
-
-	if (interaction.isCommand()) {
-		const command = client.commands.slash.get(interaction.commandName);
-		if (!command)
-			return interaction.followUp({
-				content: "An error has occured",
-				ephemeral: true
-			});
-
-		const args = [];
-
-		for (let option of interaction.options.data) {
-			if (option.type === ApplicationCommandOptionType.Subcommand) {
-				if (option.name) args.push(option.name);
-				option.options?.forEach(x => {
-					if (x.value) args.push(x.value);
-				});
-			} else if (option.value) args.push(option.value);
-		}
-
-		try {
-			command.execute(client, interaction, args, db, emoji);
-
-			const time = `花費 ${(
-				(Date.now() - interaction.createdTimestamp) /
-				1000
-			).toFixed(2)} 秒`;
-
-			new Logger("指令").command(
-				`${interaction.user.displayName}(${interaction.user.id}) 執行 ${command.data.name} - ${time}`
-			);
-			webhook.send({
-				embeds: [
-					new EmbedBuilder()
-						.setConfig(null, time)
-						.setTimestamp()
-						.setAuthor({
-							iconURL: interaction.user.displayAvatarURL({
-								size: 4096,
-								dynamic: true
-							}),
-							name: `${interaction.user.username} - ${interaction.user.id}`
-						})
-						.setThumbnail(
-							interaction.guild.iconURL({
-								size: 4096,
-								dynamic: true
-							})
-						)
-						.setDescription(
-							`\`\`\`${interaction.guild.name} - ${interaction.guild.id}\`\`\``
-						)
-						.addField(
-							command.data.name,
-							`${
-								interaction.options._subcommand
-									? `> ${interaction.options._subcommand}`
-									: "\u200b"
-							} ${
-								interaction.options._hoistedOptions > 0
-									? ` \`${interaction.options._hoistedOptions[0].value}\``
-									: "\u200b"
-							}`,
-							true
-						)
-				]
-			});
-		} catch (e) {
-			new Logger("指令").error(`錯誤訊息：${e.message}`);
-			await interaction.reply({
-				content: "哦喲，好像出了一點小問題，請重試",
-				ephemeral: true
-			});
-		}
-	} else if (interaction.isContextMenuCommand()) {
-		const command = client.commands.slash.get(interaction.commandName);
-		if (!command) return;
-		try {
-			command.execute(client, interaction);
-		} catch (e) {
-			new Logger("指令").error(`錯誤訊息：${e.message}`);
-			await interaction.reply({
-				content: "哦喲，好像出了一點小問題，請重試",
-				ephemeral: true
-			});
-		}
+	} catch (error) {
+		console.error("Interaction handling error:", error);
 	}
 });
