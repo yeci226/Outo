@@ -4,6 +4,29 @@ import {
 	EmbedBuilder
 } from "discord.js";
 import { GuildDataManager } from "../events/reply.js";
+import { addLogEntry } from "../services/logs.js";
+
+const CONSTANTS = {
+	SUCCESS_COLOR: "#A1DD70",
+	ERROR_COLOR: "#EE4E4E",
+	ERROR_THUMBNAIL:
+		"https://media.discordapp.net/attachments/1057244827688910850/1110552508369219584/discord_1.gif",
+	SUCCESS_THUMBNAIL:
+		"https://media.discordapp.net/attachments/1057244827688910850/1110552199450333204/discord.gif"
+};
+
+function createErrorEmbed(title, description = null) {
+	const embed = new EmbedBuilder()
+		.setThumbnail(CONSTANTS.ERROR_THUMBNAIL)
+		.setTitle(title)
+		.setColor(CONSTANTS.ERROR_COLOR);
+
+	if (description) {
+		embed.setDescription(description);
+	}
+
+	return embed;
+}
 
 export default {
 	data: new SlashCommandBuilder()
@@ -13,8 +36,8 @@ export default {
 		.setDescriptionLocalizations({ "zh-TW": "為伺服器刪除詞彙" })
 		.addStringOption(option =>
 			option
-				.setName("vocabulary")
-				.setDescription("Word to delete")
+				.setName("trigger")
+				.setDescription("Vocabulary to delete")
 				.setNameLocalizations({ "zh-TW": "詞彙" })
 				.setDescriptionLocalizations({ "zh-TW": "想要刪除的詞彙" })
 				.setAutocomplete(true)
@@ -30,69 +53,55 @@ export default {
 	 */
 	async execute(client, interaction, args, db) {
 		try {
-			// Get guild data
-			const guildId = interaction.guild.id;
-			const guildData = await db.get(`${guildId}`);
-			const replies = guildData?.replies || [];
+			const triggerToRemove = interaction.options.getString("trigger");
 
-			if (!replies.length) {
+			// Get current data before deletion
+			let guilddb =
+				(await db.get(`${interaction.guild.id}.replies`)) || [];
+			const triggerData = guilddb.find(
+				entry => entry.trigger === triggerToRemove
+			);
+
+			if (!triggerData) {
 				return interaction.reply({
-					embeds: [
-						new EmbedBuilder()
-							.setThumbnail(
-								"https://media.discordapp.net/attachments/1057244827688910850/1110552508369219584/discord_1.gif"
-							)
-							.setTitle("我沒有在這個伺服器找到任何詞彙！")
-							.setColor("#EE4E4E")
-					],
+					embeds: [createErrorEmbed("找不到此觸發詞")],
 					ephemeral: true
 				});
 			}
 
-			const vocabularyId = interaction.options.getString("vocabulary");
-
-			// Find the vocabulary item by its ID (index)
-			const index = parseInt(vocabularyId);
-			if (isNaN(index) || index < 0 || index >= replies.length) {
-				return interaction.reply({
-					embeds: [
-						new EmbedBuilder()
-							.setThumbnail(
-								"https://media.discordapp.net/attachments/1057244827688910850/1110552508369219584/discord_1.gif"
-							)
-							.setTitle("未找到可刪除的詞彙！")
-							.setColor("#EE4E4E")
-					],
-					ephemeral: true
-				});
-			}
-
-			// Store the trigger before removing
-			const trigger = replies[index].trigger;
-
-			// Remove the vocabulary
-			replies.splice(index, 1);
-
-			// Update database
-			await db.set(`${guildId}`, { replies });
+			// Remove the trigger
+			guilddb = guilddb.filter(
+				entry => entry.trigger !== triggerToRemove
+			);
+			await db.set(`${interaction.guild.id}.replies`, guilddb);
 
 			// Update cache
-			GuildDataManager.updateCache(guildId, replies);
+			GuildDataManager.updateCache(interaction.guild.id, guilddb);
 
-			return interaction.reply({
-				embeds: [
-					new EmbedBuilder()
-						.setThumbnail(
-							"https://media.discordapp.net/attachments/1057244827688910850/1110552199450333204/discord.gif"
-						)
-						.setTitle("已刪除詞彙")
-						.addFields({
-							name: "觸發詞",
-							value: `\`${trigger.length > 2048 ? trigger.slice(0, 2045) + "..." : trigger}\``,
-							inline: false
-						})
-						.setColor("#A1DD70")
-				],
+			// Log the deletion
+			await addLogEntry(interaction.guild, interaction.user, "delete", {
+				trigger: triggerToRemove,
+				replies: triggerData.replies,
+				type: triggerData.type,
+				mode: triggerData.mode,
+				probability: triggerData.probability
+			});
+
+			// Send success message
+			const successEmbed = new EmbedBuilder()
+				.setColor(CONSTANTS.SUCCESS_COLOR)
+				.setThumbnail(CONSTANTS.SUCCESS_THUMBNAIL)
+				.setTitle("已刪除觸發詞")
+				.addFields([
+					{
+						name: "觸發詞",
+						value: triggerToRemove,
+						inline: false
+					}
+				]);
+
+			await interaction.reply({
+				embeds: [successEmbed],
 				ephemeral: true
 			});
 		} catch (error) {

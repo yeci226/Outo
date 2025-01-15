@@ -1,9 +1,6 @@
 import { client } from "../index.js";
 import { ChannelType, Collection } from "discord.js";
-import { QuickDB } from "quick.db";
-
-// Initialize database
-const db = new QuickDB();
+const db = client.db;
 
 // Constants
 const CONSTANTS = {
@@ -125,7 +122,6 @@ function findMatch(guildData, content) {
 async function sendResponse(message, entry) {
 	try {
 		const { replies, mode, probability = 100 } = entry;
-		console.log(entry);
 
 		// Check probability
 		if (probability < 100 && Math.random() * 100 > probability) {

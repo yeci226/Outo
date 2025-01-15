@@ -14,7 +14,7 @@ const webhook = new WebhookClient({ url: process.env.CMDWEBHOOK });
 
 // Handle autocomplete interactions
 async function handleAutocomplete(interaction) {
-	if (interaction.options._hoistedOptions[0].name !== "vocabulary") return;
+	if (interaction.options._hoistedOptions[0].name !== "trigger") return;
 
 	try {
 		const guildId = interaction.guild.id;
@@ -25,13 +25,12 @@ async function handleAutocomplete(interaction) {
 		}
 
 		const input = (
-			interaction.options.getString("vocabulary") || ""
+			interaction.options.getString("trigger") || ""
 		).toLowerCase();
 
 		const options = guildData
-			.map((item, index) => ({
-				trigger: item.trigger,
-				index
+			.map(item => ({
+				trigger: item.trigger
 			}))
 			.filter(item => item.trigger.toLowerCase().includes(input))
 			.slice(0, 25)
@@ -40,7 +39,7 @@ async function handleAutocomplete(interaction) {
 					item.trigger.length > 100
 						? `${item.trigger.slice(0, 97)}...`
 						: item.trigger,
-				value: item.index.toString()
+				value: item.trigger // Use trigger as value instead of index
 			}));
 
 		await interaction.respond(options);

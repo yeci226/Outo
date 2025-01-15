@@ -4,10 +4,12 @@ import { EmbedBuilder, Collection } from "discord.js";
 
 // Constants
 const CONSTANTS = {
-  BUTTON_PREFIX: "list",
-  ERROR_COLOR: "#EE4E4E",
-  COOLDOWN: 2000, // 2 seconds
-  CACHE_LIFETIME: 5 * 60 * 1000 // 5 minutes
+	BUTTON_PREFIX: "list",
+	ERROR_COLOR: "#EE4E4E",
+	ERROR_THUMBNAIL:
+		"https://media.discordapp.net/attachments/1057244827688910850/1110552508369219584/discord_1.gif",
+	COOLDOWN: 2000, // 2 seconds
+	CACHE_LIFETIME: 5 * 60 * 1000 // 5 minutes
 };
 
 // Initialize database and caches
@@ -19,11 +21,11 @@ const pageCache = new Collection();
  * Button action types and their handlers
  */
 const ACTIONS = {
-  listBack: (currentPage, totalPages) => 
-    (currentPage - 1 + totalPages.length) % totalPages.length,
-  listNext: (currentPage, totalPages) => 
-    (currentPage + 1) % totalPages.length,
-  listRefresh: (currentPage) => currentPage
+	listBack: (currentPage, totalPages) =>
+		(currentPage - 1 + totalPages.length) % totalPages.length,
+	listNext: (currentPage, totalPages) =>
+		(currentPage + 1) % totalPages.length,
+	listRefresh: currentPage => currentPage
 };
 
 /**
@@ -32,15 +34,15 @@ const ACTIONS = {
  * @returns {boolean} - Whether the user is in cooldown
  */
 function checkCooldown(userId) {
-  const now = Date.now();
-  const lastInteraction = cooldowns.get(userId);
+	const now = Date.now();
+	const lastInteraction = cooldowns.get(userId);
 
-  if (lastInteraction && now - lastInteraction < CONSTANTS.COOLDOWN) {
-    return true;
-  }
+	if (lastInteraction && now - lastInteraction < CONSTANTS.COOLDOWN) {
+		return true;
+	}
 
-  cooldowns.set(userId, now);
-  return false;
+	cooldowns.set(userId, now);
+	return false;
 }
 
 /**
@@ -50,28 +52,28 @@ function checkCooldown(userId) {
  * @returns {Promise<Object>} Page data
  */
 async function getPageData(guildId, userId) {
-  const cacheKey = `${guildId}-${userId}`;
-  const now = Date.now();
-  const cached = pageCache.get(cacheKey);
+	const cacheKey = `${guildId}-${userId}`;
+	const now = Date.now();
+	const cached = pageCache.get(cacheKey);
 
-  if (cached && now - cached.timestamp < CONSTANTS.CACHE_LIFETIME) {
-    return cached.data;
-  }
+	if (cached && now - cached.timestamp < CONSTANTS.CACHE_LIFETIME) {
+		return cached.data;
+	}
 
-  const guildData = await db.get(guildId);
-  const userData = await db.get(`${userId}.list`);
-  
-  const data = {
-    guildReplies: guildData?.replies || [],
-    currentPage: userData?.currentPage || 0
-  };
+	const guildData = await db.get(guildId);
+	const userData = await db.get(`${userId}.list`);
 
-  pageCache.set(cacheKey, {
-    timestamp: now,
-    data
-  });
+	const data = {
+		guildReplies: guildData?.replies || [],
+		currentPage: userData?.currentPage || 0
+	};
 
-  return data;
+	pageCache.set(cacheKey, {
+		timestamp: now,
+		data
+	});
+
+	return data;
 }
 
 /**
@@ -80,69 +82,74 @@ async function getPageData(guildId, userId) {
  * @returns {EmbedBuilder}
  */
 function createErrorEmbed(message) {
-  return new EmbedBuilder()
-    .setTitle(message)
-    .setColor(CONSTANTS.ERROR_COLOR);
+	return new EmbedBuilder()
+		.setThumbnail(CONSTANTS.ERROR_THUMBNAIL)
+		.setTitle(message)
+		.setColor(CONSTANTS.ERROR_COLOR);
 }
 
 // Main event handler
 client.on("interactionCreate", async interaction => {
-  // Basic filtering
-  if (!interaction.isButton()) return;
-  const { customId, guildId, user } = interaction;
+	// Basic filtering
+	if (!interaction.isButton()) return;
+	const { customId, guildId, user } = interaction;
 
-  // Check if it's a list button
-  if (!customId.startsWith(CONSTANTS.BUTTON_PREFIX)) return;
+	// Check if it's a list button
+	if (!customId.startsWith(CONSTANTS.BUTTON_PREFIX)) return;
 
-  try {
-    // Defer update
-    await interaction.deferUpdate();
+	try {
+		// Defer update
+		await interaction.deferUpdate();
 
-    // Check cooldown
-    if (checkCooldown(user.id)) return;
+		// Check cooldown
+		if (checkCooldown(user.id)) return;
 
-    // Get button action
-    const action = ACTIONS[customId];
-    if (!action) return;
+		// Get button action
+		const action = ACTIONS[customId];
+		if (!action) return;
 
-    // Get page data
-    const { guildReplies, currentPage } = await getPageData(guildId, user.id);
+		// Get page data
+		const { guildReplies, currentPage } = await getPageData(
+			guildId,
+			user.id
+		);
 
-    // Check if guild has replies
-    if (!guildReplies.length) {
-      return await interaction.editReply({
-        embeds: [createErrorEmbed("我沒有在這個伺服器找到任何詞彙！")],
-        components: []
-      });
-    }
+		// Check if guild has replies
+		if (!guildReplies.length) {
+			return await interaction.editReply({
+				embeds: [createErrorEmbed("我沒有在這個伺服器找到任何詞彙！")],
+				components: []
+			});
+		}
 
-    // Get pagination data
-    const { totalPages } = getLists(guildReplies);
+		// Get pagination data
+		const { totalPages } = getLists(guildReplies);
 
-    // Calculate new page
-    const newPage = action(currentPage, totalPages);
+		// Calculate new page
+		const newPage = action(currentPage, totalPages);
 
-    // Update user's current page if changed
-    if (newPage !== currentPage) {
-      await db.set(`${user.id}.list`, { currentPage: newPage });
-    }
+		// Update user's current page if changed
+		if (newPage !== currentPage) {
+			await db.set(`${user.id}.list`, { currentPage: newPage });
+		}
 
-    // Send response
-    await interaction.editReply({
-      embeds: [getListEmbed(interaction, guildReplies, totalPages, newPage)],
-      components: getListComponents(totalPages)
-    });
+		// Send response
+		await interaction.editReply({
+			embeds: [
+				getListEmbed(interaction, guildReplies, totalPages, newPage)
+			],
+			components: getListComponents(totalPages)
+		});
+	} catch (error) {
+		console.error("List interaction error:", error);
 
-  } catch (error) {
-    console.error('List interaction error:', error);
-    
-    try {
-      await interaction.editReply({
-        embeds: [createErrorEmbed("處理請求時發生錯誤，請稍後再試")],
-        components: []
-      });
-    } catch (secondaryError) {
-      console.error('Error sending error message:', secondaryError);
-    }
-  }
+		try {
+			await interaction.editReply({
+				embeds: [createErrorEmbed("處理請求時發生錯誤，請稍後再試")],
+				components: []
+			});
+		} catch (secondaryError) {
+			console.error("Error sending error message:", secondaryError);
+		}
+	}
 });
