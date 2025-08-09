@@ -5,15 +5,19 @@ Object.assign(process.env, dotenv.parse(fs.readFileSync("./.env")));
 import { ClusterManager, HeartbeatManager } from "discord-hybrid-sharding";
 import { Logger } from "./services/logger.js";
 
-const manager = new ClusterManager(`${process.cwd()}/src/index.js`, {
+const token =
+	process.env.NODE_ENV === "dev" ? process.env.TESTOKEN : process.env.TOKEN;
+
+if (!token) {
+	throw new Error("Discord token not found in environment variables");
+}
+
+const manager = new ClusterManager(`${process.cwd()}/dist/index.js`, {
 	totalShards: "auto",
 	totalClusters: 5,
 	shardsPerClusters: 5,
 	mode: "worker",
-	token:
-		process.env.NODE_ENV === "dev"
-			? process.env.TESTOKEN
-			: process.env.TOKEN,
+	token,
 	restarts: {
 		max: 5,
 		interval: 1000 * 60 * 60 * 2

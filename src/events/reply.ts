@@ -1,6 +1,23 @@
-import { client } from "../index.js";
-import { ChannelType, Collection } from "discord.js";
-const db = client.db;
+import { ChannelType, Collection, Message, Events } from "discord.js";
+import { client, database } from "../index.js";
+
+interface TriggerEntry {
+	trigger: string;
+	replies: string[];
+	type: string;
+	mode: string;
+	probability: number;
+}
+
+interface OptimizedData {
+	exact: Map<string, TriggerEntry>;
+	partial: TriggerEntry[];
+}
+
+interface CacheEntry {
+	timestamp: number;
+	data: OptimizedData;
+}
 
 // Constants
 const CONSTANTS = {
@@ -10,8 +27,8 @@ const CONSTANTS = {
 };
 
 // Cache for guild data
-const guildCache = new Collection();
-const cooldowns = new Collection();
+const guildCache = new Collection<string, CacheEntry>();
+const cooldowns = new Collection<string, number>();
 
 /**
  * Cache manager for guild data
@@ -19,13 +36,13 @@ const cooldowns = new Collection();
 class GuildDataManager {
 	/**
 	 * Get optimized data structure from raw data
-	 * @param {Array} data - Raw guild data
-	 * @returns {Object} Optimized data structure
+	 * @param {TriggerEntry[]} data - Raw guild data
+	 * @returns {OptimizedData | null} Optimized data structure
 	 */
-	static optimizeData(data) {
+	static optimizeData(data: TriggerEntry[]): OptimizedData | null {
 		if (!data) return null;
 
-		const optimizedData = {
+		const optimizedData: OptimizedData = {
 			exact: new Map(),
 			partial: []
 		};
@@ -44,9 +61,9 @@ class GuildDataManager {
 	/**
 	 * Update cache for a specific guild
 	 * @param {string} guildId - Guild ID
-	 * @param {Array} data - New guild data
+	 * @param {TriggerEntry[]} data - New guild data
 	 */
-	static updateCache(guildId, data) {
+	static updateCache(guildId: string, data: TriggerEntry[]): void {
 		const optimizedData = this.optimizeData(data);
 		if (optimizedData) {
 			guildCache.set(guildId, {
@@ -57,9 +74,9 @@ class GuildDataManager {
 			// Cleanup old cache entries
 			if (guildCache.size > CONSTANTS.MAX_CACHE_SIZE) {
 				const oldestKey = guildCache.reduce(
-					(oldest, value, key) =>
+					(oldest: string | null, value: CacheEntry, key: string) =>
 						!oldest ||
-						value.timestamp < guildCache.get(oldest).timestamp
+						value.timestamp < guildCache.get(oldest)!.timestamp
 							? key
 							: oldest,
 					null
@@ -72,9 +89,9 @@ class GuildDataManager {
 	/**
 	 * Get guild data from cache or database
 	 * @param {string} guildId - Guild ID
-	 * @returns {Promise<Object>} Guild data
+	 * @returns {Promise<OptimizedData | null>} Guild data
 	 */
-	static async getGuildData(guildId) {
+	static async getGuildData(guildId: string): Promise<OptimizedData | null> {
 		const now = Date.now();
 		const cached = guildCache.get(guildId);
 
@@ -85,7 +102,9 @@ class GuildDataManager {
 
 		// Fetch new data
 		try {
-			const data = await db.get(`${guildId}.replies`);
+			const data = (await database.get(
+				`${guildId}.replies`
+			)) as TriggerEntry[];
 			const optimizedData = this.optimizeData(data);
 
 			if (optimizedData) {
@@ -100,7 +119,7 @@ class GuildDataManager {
 	}
 }
 
-function checkCooldown(channelId) {
+function checkCooldown(channelId: string): boolean {
 	const now = Date.now();
 	const lastMessage = cooldowns.get(channelId);
 
@@ -112,14 +131,20 @@ function checkCooldown(channelId) {
 	return false;
 }
 
-function findMatch(guildData, content) {
+function findMatch(
+	guildData: OptimizedData,
+	content: string
+): TriggerEntry | undefined {
 	const exactMatch = guildData.exact.get(content);
 	if (exactMatch) return exactMatch;
 
 	return guildData.partial.find(entry => content.includes(entry.trigger));
 }
 
-async function sendResponse(message, entry) {
+async function sendResponse(
+	message: Message,
+	entry: TriggerEntry
+): Promise<void> {
 	try {
 		const { replies, mode, probability = 100 } = entry;
 
@@ -131,9 +156,11 @@ async function sendResponse(message, entry) {
 		const reply = replies[Math.floor(Math.random() * replies.length)];
 
 		if (mode === "訊息") {
-			await message.channel.send({ content: reply });
+			if ("send" in message.channel) {
+				await message.channel.send({ content: reply || "" });
+			}
 		} else {
-			await message.reply({ content: reply });
+			await message.reply({ content: reply || "" });
 		}
 	} catch (error) {
 		console.error("Error sending response:", error);
@@ -144,7 +171,7 @@ async function sendResponse(message, entry) {
 export { GuildDataManager };
 
 // Main event handler
-client.on("messageCreate", async message => {
+client.on(Events.MessageCreate, async (message: Message) => {
 	if (
 		message.author.bot ||
 		message.system ||
@@ -153,6 +180,8 @@ client.on("messageCreate", async message => {
 		return;
 
 	try {
+		if (!message.guild) return;
+
 		const guildData = await GuildDataManager.getGuildData(message.guild.id);
 		if (!guildData) return;
 

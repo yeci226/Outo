@@ -1,8 +1,36 @@
 import { client } from "../index.js";
-import { EmbedBuilder } from "discord.js";
+import {
+	EmbedBuilder,
+	Guild,
+	GuildEmoji,
+	Events,
+	MessageFlags
+} from "discord.js";
 import { addLogEntry } from "../services/logs.js";
 import { GuildDataManager } from "./reply.js";
-const db = client.db;
+import { database } from "../index.js";
+
+interface GuildEmotes {
+	[key: string]: GuildEmoji;
+}
+
+interface ValidationResult {
+	isValid: boolean;
+	error?: EmbedBuilder;
+}
+
+interface TriggerEntry {
+	trigger: string;
+	replies: string[];
+	type: string;
+	mode: string;
+	probability: number;
+}
+
+interface GuildData {
+	replies?: TriggerEntry[];
+	[key: string]: any;
+}
 
 const CONSTANTS = {
 	MODAL_ID: "add",
@@ -20,11 +48,11 @@ const CONSTANTS = {
 	DEFAULT_PROBABILITY: 100
 };
 
-function createErrorEmbed(title, description = null) {
+function createErrorEmbed(title: string, description?: string): EmbedBuilder {
 	const embed = new EmbedBuilder()
 		.setThumbnail(CONSTANTS.ERROR_THUMBNAIL)
 		.setTitle(title)
-		.setColor(CONSTANTS.ERROR_COLOR);
+		.setColor(CONSTANTS.ERROR_COLOR as any);
 
 	if (description) {
 		embed.setDescription(description);
@@ -33,7 +61,11 @@ function createErrorEmbed(title, description = null) {
 	return embed;
 }
 
-function validateInputs(type, mode, probability) {
+function validateInputs(
+	type: string,
+	mode: string,
+	probability: string
+): ValidationResult {
 	if (!CONSTANTS.VALID_TYPES.includes(type)) {
 		return {
 			isValid: false,
@@ -68,23 +100,23 @@ function validateInputs(type, mode, probability) {
 	return { isValid: true };
 }
 
-function truncateText(text, maxLength) {
+function truncateText(text: string, maxLength: number): string {
 	if (text.length > maxLength) {
 		return text.slice(0, maxLength - 3) + "...";
 	}
 	return text;
 }
 
-async function getGuildEmotes(guild) {
-	const emotes = {};
+async function getGuildEmotes(guild: Guild): Promise<GuildEmotes> {
+	const emotes: GuildEmotes = {};
 	guild.emojis.cache.forEach(emoji => {
 		emotes[`:${emoji.name}:`] = emoji;
-		emotes[emoji.name] = emoji;
+		emotes[emoji.name!] = emoji;
 	});
 	return emotes;
 }
 
-function convertEmoteFormat(text, emotes) {
+function convertEmoteFormat(text: string, emotes: GuildEmotes): string {
 	return text.replace(/:([\w\d_]+):/g, (match, name) => {
 		const emoji = emotes[match] || emotes[name];
 		if (emoji) {
@@ -94,7 +126,7 @@ function convertEmoteFormat(text, emotes) {
 	});
 }
 
-client.on("interactionCreate", async interaction => {
+client.on(Events.InteractionCreate, async (interaction: any) => {
 	if (
 		!interaction.isModalSubmit() ||
 		interaction.customId !== CONSTANTS.MODAL_ID
@@ -102,6 +134,13 @@ client.on("interactionCreate", async interaction => {
 		return;
 
 	try {
+		if (!interaction.guild) {
+			return interaction.reply({
+				embeds: [createErrorEmbed("此命令只能在伺服器中使用")],
+				flags: MessageFlags.Ephemeral
+			});
+		}
+
 		const guildEmotes = await getGuildEmotes(interaction.guild);
 
 		const trigger = interaction.fields
@@ -110,9 +149,9 @@ client.on("interactionCreate", async interaction => {
 		const replies = interaction.fields
 			.getTextInputValue("add_reply")
 			.split("</>")
-			.filter(reply => reply.trim().length > 0)
-			.map(reply => reply.trim())
-			.map(reply => convertEmoteFormat(reply, guildEmotes));
+			.filter((reply: string) => reply.trim().length > 0)
+			.map((reply: string) => reply.trim())
+			.map((reply: string) => convertEmoteFormat(reply, guildEmotes));
 
 		const type = interaction.fields.getTextInputValue("add_type").trim();
 		const mode = interaction.fields.getTextInputValue("add_mode").trim();
@@ -123,12 +162,12 @@ client.on("interactionCreate", async interaction => {
 		if (replies.length === 0) {
 			return interaction.reply({
 				embeds: [createErrorEmbed("請至少輸入一個回覆詞彙")],
-				ephemeral: true
+				flags: MessageFlags.Ephemeral
 			});
 		}
 
 		if (
-			replies.some(reply =>
+			replies.some((reply: string) =>
 				CONSTANTS.FORBIDDEN_MENTIONS.some(mention =>
 					reply.includes(mention)
 				)
@@ -136,23 +175,25 @@ client.on("interactionCreate", async interaction => {
 		) {
 			return interaction.reply({
 				embeds: [createErrorEmbed("嘿！這是禁止的詞彙")],
-				ephemeral: true
+				flags: MessageFlags.Ephemeral
 			});
 		}
 
 		const validation = validateInputs(type, mode, probability);
 		if (!validation.isValid) {
 			return interaction.reply({
-				embeds: [validation.error],
-				ephemeral: true
+				embeds: [validation.error!],
+				flags: MessageFlags.Ephemeral
 			});
 		}
 
 		// Get existing guild data
-		let guildData = (await db.get(`${interaction.guild.id}`)) || {};
-		let guilddb = guildData.replies || [];
+		const guildData =
+			((await database.get(`${interaction.guild.id}`)) as GuildData) ||
+			{};
+		const guilddb = guildData.replies || [];
 
-		const entry = {
+		const entry: TriggerEntry = {
 			trigger,
 			replies,
 			type,
@@ -171,7 +212,7 @@ client.on("interactionCreate", async interaction => {
 
 		// Update only the replies field while preserving other data
 		guildData.replies = guilddb;
-		await db.set(`${interaction.guild.id}`, guildData);
+		await database.set(`${interaction.guild.id}`, guildData);
 
 		GuildDataManager.updateCache(interaction.guild.id, guilddb);
 
@@ -184,7 +225,7 @@ client.on("interactionCreate", async interaction => {
 		});
 
 		const successEmbed = new EmbedBuilder()
-			.setColor(CONSTANTS.SUCCESS_COLOR)
+			.setColor(CONSTANTS.SUCCESS_COLOR as any)
 			.setThumbnail(CONSTANTS.SUCCESS_THUMBNAIL)
 			.setTitle("已添加新詞彙")
 			.addFields([
@@ -220,13 +261,14 @@ client.on("interactionCreate", async interaction => {
 
 		await interaction.reply({
 			embeds: [successEmbed],
-			ephemeral: true
+			flags: MessageFlags.Ephemeral
 		});
 	} catch (error) {
 		console.error("Modal submission error:", error);
 		await interaction.reply({
 			embeds: [createErrorEmbed("處理你的請求時發生錯誤，請稍後再試")],
-			ephemeral: true
+			flags: MessageFlags.Ephemeral
 		});
 	}
+	return;
 });

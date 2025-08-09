@@ -1,10 +1,20 @@
 import {
-	CommandInteraction,
+	ChatInputCommandInteraction,
 	SlashCommandBuilder,
-	EmbedBuilder
+	EmbedBuilder,
+	MessageFlags
 } from "discord.js";
 import { GuildDataManager } from "../events/reply.js";
 import { addLogEntry } from "../services/logs.js";
+import { database } from "../index.js";
+
+interface TriggerData {
+	trigger: string;
+	replies: string[];
+	type: string;
+	mode: string;
+	probability: number;
+}
 
 const CONSTANTS = {
 	SUCCESS_COLOR: "#A1DD70",
@@ -15,11 +25,11 @@ const CONSTANTS = {
 		"https://media.discordapp.net/attachments/1057244827688910850/1110552199450333204/discord.gif"
 };
 
-function createErrorEmbed(title, description = null) {
+function createErrorEmbed(title: string, description?: string): EmbedBuilder {
 	const embed = new EmbedBuilder()
 		.setThumbnail(CONSTANTS.ERROR_THUMBNAIL)
 		.setTitle(title)
-		.setColor(CONSTANTS.ERROR_COLOR);
+		.setColor(CONSTANTS.ERROR_COLOR as any);
 
 	if (description) {
 		embed.setDescription(description);
@@ -46,34 +56,46 @@ export default {
 
 	/**
 	 * Execute the remove command
-	 * @param {Client} client
-	 * @param {CommandInteraction} interaction
+	 * @param {ChatInputCommandInteraction} interaction
 	 * @param {String[]} args
-	 * @param {Object} db Database instance
 	 */
-	async execute(client, interaction, args, db) {
+	async execute(
+		interaction: ChatInputCommandInteraction,
+		...args: string[]
+	): Promise<void> {
 		try {
 			const triggerToRemove = interaction.options.getString("trigger");
 
+			if (!triggerToRemove || !interaction.guild) {
+				await interaction.reply({
+					embeds: [createErrorEmbed("無效的觸發詞或伺服器")],
+					flags: MessageFlags.Ephemeral
+				});
+				return;
+			}
+
 			// Get current data before deletion
 			let guilddb =
-				(await db.get(`${interaction.guild.id}.replies`)) || [];
+				((await database.get(
+					`${interaction.guild.id}.replies`
+				)) as TriggerData[]) || [];
 			const triggerData = guilddb.find(
 				entry => entry.trigger === triggerToRemove
 			);
 
 			if (!triggerData) {
-				return interaction.reply({
+				await interaction.reply({
 					embeds: [createErrorEmbed("找不到此觸發詞")],
-					ephemeral: true
+					flags: MessageFlags.Ephemeral
 				});
+				return;
 			}
 
 			// Remove the trigger
 			guilddb = guilddb.filter(
 				entry => entry.trigger !== triggerToRemove
 			);
-			await db.set(`${interaction.guild.id}.replies`, guilddb);
+			await database.set(`${interaction.guild.id}.replies`, guilddb);
 
 			// Update cache
 			GuildDataManager.updateCache(interaction.guild.id, guilddb);
@@ -89,7 +111,7 @@ export default {
 
 			// Send success message
 			const successEmbed = new EmbedBuilder()
-				.setColor(CONSTANTS.SUCCESS_COLOR)
+				.setColor(CONSTANTS.SUCCESS_COLOR as any)
 				.setThumbnail(CONSTANTS.SUCCESS_THUMBNAIL)
 				.setTitle("已刪除觸發詞")
 				.addFields([
@@ -102,11 +124,11 @@ export default {
 
 			await interaction.reply({
 				embeds: [successEmbed],
-				ephemeral: true
+				flags: MessageFlags.Ephemeral
 			});
 		} catch (error) {
 			console.error("Remove command error:", error);
-			return interaction.reply({
+			await interaction.reply({
 				embeds: [
 					new EmbedBuilder()
 						.setThumbnail(
@@ -115,7 +137,7 @@ export default {
 						.setTitle("刪除詞彙時發生錯誤！")
 						.setColor("#EE4E4E")
 				],
-				ephemeral: true
+				flags: MessageFlags.Ephemeral
 			});
 		}
 	}

@@ -1,24 +1,38 @@
-import { client } from "../index.js";
+import { client, commands, database } from "../index.js";
 import {
 	ApplicationCommandOptionType,
 	Events,
 	EmbedBuilder,
 	WebhookClient,
-	ChannelType
+	ChannelType,
+	AutocompleteInteraction,
+	ChatInputCommandInteraction,
+	MessageFlags
 } from "discord.js";
 import { Logger } from "../services/logger.js";
 
 const emoji = client.emoji;
-const db = client.db;
-const webhook = new WebhookClient({ url: process.env.CMDWEBHOOK });
+const webhook = new WebhookClient({ url: process.env.CMDWEBHOOK! });
+
+interface GuildDataItem {
+	trigger: string;
+	[key: string]: any;
+}
 
 // Handle autocomplete interactions
-async function handleAutocomplete(interaction) {
-	if (interaction.options._hoistedOptions[0].name !== "trigger") return;
+async function handleAutocomplete(
+	interaction: AutocompleteInteraction
+): Promise<void> {
+	if ((interaction.options as any)._hoistedOptions?.[0]?.name !== "trigger")
+		return;
 
 	try {
-		const guildId = interaction.guild.id;
-		const guildData = await db.get(`${guildId}.replies`);
+		const guildId = interaction.guild?.id;
+		if (!guildId) return;
+
+		const guildData = (await database.get(
+			`${guildId}.replies`
+		)) as GuildDataItem[];
 
 		if (!guildData?.length) {
 			return await interaction.respond([]);
@@ -50,63 +64,72 @@ async function handleAutocomplete(interaction) {
 }
 
 // Handle slash commands
-async function handleSlashCommand(interaction) {
-	const command = client.commands.slash.get(interaction.commandName);
+async function handleSlashCommand(
+	interaction: ChatInputCommandInteraction
+): Promise<void> {
+	const command = commands.slash.get(interaction.commandName);
 	if (!command) {
-		return interaction.followUp({
+		await interaction.followUp({
 			content: "An error has occurred",
-			ephemeral: true
+			flags: MessageFlags.Ephemeral
 		});
+		return;
 	}
 
-	const args = interaction.options.data.reduce((acc, option) => {
+	const args = interaction.options.data.reduce((acc: string[], option) => {
 		if (option.type === ApplicationCommandOptionType.Subcommand) {
 			if (option.name) acc.push(option.name);
 			option.options?.forEach(x => {
-				if (x.value) acc.push(x.value);
+				if (x.value) acc.push(String(x.value));
 			});
 		} else if (option.value) {
-			acc.push(option.value);
+			acc.push(String(option.value));
 		}
 		return acc;
 	}, []);
 
 	try {
-		await command.execute(client, interaction, args, db, emoji);
+		await command.execute(
+			interaction as ChatInputCommandInteraction,
+			...args
+		);
 		logCommandExecution(interaction, command);
 	} catch (error) {
 		console.error("Command execution error:", error);
-		new Logger("指令").error(`錯誤訊息：${error.message}`);
+		new Logger("指令").error(`錯誤訊息：${(error as Error).message}`);
 
 		if (!interaction.replied && !interaction.deferred) {
 			await interaction.reply({
 				content: "哦喲，好像出了一點小問題，請重試",
-				ephemeral: true
+				flags: MessageFlags.Ephemeral
 			});
 		}
 	}
 }
 
 // Log command execution
-function logCommandExecution(interaction, command) {
+function logCommandExecution(
+	interaction: ChatInputCommandInteraction,
+	command: any
+): void {
 	const executionTime = (
 		(Date.now() - interaction.createdTimestamp) /
 		1000
 	).toFixed(2);
 	const timeString = `花費 ${executionTime} 秒`;
 
-	new Logger("指令").command(
+	new Logger("指令").info(
 		`${interaction.user.displayName}(${interaction.user.id}) 執行 ${command.data.name} - ${timeString}`
 	);
 
 	const embedFields = {
 		name: command.data.name,
 		value: [
-			interaction.options._subcommand
-				? `> ${interaction.options._subcommand}`
+			(interaction.options as any)._subcommand
+				? `> ${(interaction.options as any)._subcommand}`
 				: "\u200b",
-			interaction.options._hoistedOptions.length > 0
-				? ` \`${interaction.options._hoistedOptions[0].value}\``
+			(interaction.options as any)._hoistedOptions?.length > 0
+				? ` \`${(interaction.options as any)._hoistedOptions[0].value}\``
 				: "\u200b"
 		].join(""),
 		inline: true
@@ -120,19 +143,18 @@ function logCommandExecution(interaction, command) {
 				.setTimestamp()
 				.setAuthor({
 					iconURL: interaction.user.displayAvatarURL({
-						size: 4096,
-						dynamic: true
+						size: 4096
 					}),
 					name: `${interaction.user.username} - ${interaction.user.id}`
 				})
 				.setThumbnail(
-					interaction.guild.iconURL({
+					interaction.guild?.iconURL({
 						size: 4096,
-						dynamic: true
-					})
+						forceStatic: false
+					}) || null
 				)
 				.setDescription(
-					`\`\`\`${interaction.guild.name} - ${interaction.guild.id}\`\`\``
+					`\`\`\`${interaction.guild?.name} - ${interaction.guild?.id}\`\`\``
 				)
 				.addFields(embedFields)
 		]
@@ -140,8 +162,8 @@ function logCommandExecution(interaction, command) {
 }
 
 // Main interaction handler
-client.on(Events.InteractionCreate, async interaction => {
-	if (interaction.channel.type === ChannelType.DM) return;
+client.on(Events.InteractionCreate, async (interaction: any) => {
+	if (interaction.channel?.type === ChannelType.DM) return;
 
 	try {
 		if (interaction.isAutocomplete()) {
@@ -151,7 +173,9 @@ client.on(Events.InteractionCreate, async interaction => {
 		} else if (interaction.isCommand()) {
 			await handleSlashCommand(interaction);
 		} else if (interaction.isContextMenuCommand()) {
-			const command = client.commands.slash.get(interaction.commandName);
+			const command = client.commands.slash.get(
+				(interaction as any).commandName
+			);
 			if (command) {
 				await command.execute(client, interaction);
 			}

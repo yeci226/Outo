@@ -1,10 +1,10 @@
 import {
-	CommandInteraction,
 	SlashCommandBuilder,
 	ModalBuilder,
 	TextInputBuilder,
 	ActionRowBuilder,
-	TextInputStyle
+	TextInputStyle,
+	ChatInputCommandInteraction
 } from "discord.js";
 
 export default {
@@ -18,7 +18,10 @@ export default {
 			"zh-TW": "為伺服器添加詞彙"
 		}),
 
-	async execute(client, interaction, args, db) {
+	async execute(
+		interaction: ChatInputCommandInteraction,
+		...args: string[]
+	): Promise<void> {
 		const replyExample = [
 			"當收到「你好」時，機器人將依序回覆:",
 			"→ 嗨！",
@@ -36,7 +39,7 @@ export default {
 				.setCustomId("add")
 				.setTitle("添加詞彙")
 				.addComponents(
-					new ActionRowBuilder().addComponents(
+					new ActionRowBuilder<TextInputBuilder>().addComponents(
 						new TextInputBuilder()
 							.setCustomId("add_trigger")
 							.setLabel("觸發詞 - 當看到這個詞時會觸發回覆")
@@ -46,7 +49,7 @@ export default {
 							.setMinLength(1)
 							.setMaxLength(4000)
 					),
-					new ActionRowBuilder().addComponents(
+					new ActionRowBuilder<TextInputBuilder>().addComponents(
 						new TextInputBuilder()
 							.setCustomId("add_reply")
 							.setLabel("回覆內容 - 使用 </> 分隔多個回覆")
@@ -56,7 +59,7 @@ export default {
 							.setMinLength(1)
 							.setMaxLength(4000)
 					),
-					new ActionRowBuilder().addComponents(
+					new ActionRowBuilder<TextInputBuilder>().addComponents(
 						new TextInputBuilder()
 							.setCustomId("add_type")
 							.setLabel(
@@ -69,7 +72,7 @@ export default {
 							.setMinLength(2)
 							.setMaxLength(10)
 					),
-					new ActionRowBuilder().addComponents(
+					new ActionRowBuilder<TextInputBuilder>().addComponents(
 						new TextInputBuilder()
 							.setCustomId("add_mode")
 							.setLabel(
@@ -82,7 +85,7 @@ export default {
 							.setMinLength(2)
 							.setMaxLength(10)
 					),
-					new ActionRowBuilder().addComponents(
+					new ActionRowBuilder<TextInputBuilder>().addComponents(
 						new TextInputBuilder()
 							.setCustomId("add_probability")
 							.setLabel("回覆機率 (0-100，預設100)")

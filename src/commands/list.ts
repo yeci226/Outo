@@ -1,9 +1,12 @@
 import {
-	CommandInteraction,
+	ChatInputCommandInteraction,
 	SlashCommandBuilder,
-	EmbedBuilder
+	EmbedBuilder,
+	MessageFlags
 } from "discord.js";
 import { getLists, getListEmbed, getListComponents } from "../services/list.js";
+import { createSafeEmbed } from "../utils/embedHelper.js";
+import { database } from "../index.js";
 
 export default {
 	data: new SlashCommandBuilder()
@@ -21,45 +24,52 @@ export default {
 				.setNameLocalizations({
 					"zh-TW": "其他人可見"
 				})
-				.setDescription("...")
+				.setDescription("設定是否讓其他人看到此訊息")
+				.setDescriptionLocalizations({
+					"zh-TW": "設定是否讓其他人看到此訊息"
+				})
 				.setRequired(false)
 		),
 	/**
 	 *
-	 * @param {Client} client
-	 * @param {CommandInteraction} interaction
+	 * @param {ChatInputCommandInteraction} interaction
 	 * @param {String[]} args
 	 */
-	async execute(client, interaction, args, db) {
-		const guilddb = await db.get(`${interaction.guild.id}.replies`);
+	async execute(
+		interaction: ChatInputCommandInteraction,
+		...args: string[]
+	): Promise<void> {
+		const guildId = interaction.guild?.id;
+		const guilddb = await database.get(`${guildId}.replies`);
 		const visible = interaction.options.getBoolean("visible") ?? false;
 
 		if (!guilddb) {
-			return interaction.reply({
+			await interaction.reply({
 				embeds: [
-					new EmbedBuilder()
-						.setThumbnail(
+					createSafeEmbed({
+						title: "我沒有在這個伺服器找到任何詞彙！",
+						color: "#EE4E4E",
+						thumbnail:
 							"https://media.discordapp.net/attachments/1057244827688910850/1110552508369219584/discord_1.gif"
-						)
-						.setTitle("我沒有在這個伺服器找到任何詞彙！")
-						.setConfig("#EE4E4E")
+					})
 				],
-				ephemeral: true
+				flags: MessageFlags.Ephemeral
 			});
+			return;
 		}
 
 		const currentPage = 0;
 		const { totalPages } = getLists(guilddb);
-		await db.set(`${interaction.guild.id}.list`, {
+		await database.set(`${interaction.guild?.id}.list`, {
 			currentPage: currentPage
 		});
 
-		interaction.reply({
+		await interaction.reply({
 			embeds: [
 				getListEmbed(interaction, guilddb, totalPages, currentPage)
 			],
 			components: getListComponents(totalPages),
-			ephemeral: !visible
+			flags: visible ? MessageFlags.Ephemeral : undefined
 		});
 	}
 };
